@@ -13,6 +13,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.gestioncommerciale.backend.security.JwtService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
@@ -31,6 +34,10 @@ public class AuthController {
     // Endpoint de connexion.
     // Quand l'utilisateur envoie son username et mot de passe,
     // si tout est correct, on lui donne un token JWT.
+    // @SecurityRequirements vide : route publique, Swagger n'y envoie pas de token
+    // (le bearerAuth global d'OpenApiConfig ne s'applique pas ici).
+    @Operation(summary = "Se connecter et obtenir un token JWT")
+    @SecurityRequirements
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody AuthRequest request) {
         try {

@@ -867,9 +867,9 @@ Contenu du dossier `factures/` sur le serveur après deux ventes successives : l
 
 **Alerte de stock reçue par email**
 
-![Email d'alerte stock reçu](../screenshots/Capture%20d'%C3%A9cran%202026-08-11%20204155.png)
+![Email d'alerte stock reçu](../screenshots/Capture%20d'%C3%A9cran%202026-10-21%20131924.png)
 
-Email réellement reçu, déclenché par le job planifié quotidien (voir §5.7), listant les produits en rupture (« Telephone iphone 14 Pro », stock à 0) et en stock bas (« Chargeur Dell », quantité restante : 8). Cette capture montre l'ancien format du message, qui séparait les produits à 0 de tous les autres. Depuis, l'email applique les seuils partagés `StockSeuils` : une section « rupture imminente (moins de 5 unités) » et une section « stock bas (de 5 à 9 unités) », avec la quantité restante dans les deux (voir §5.7). À noter : lors de ce test, le message a été classé par le fournisseur de messagerie dans le dossier spam — un comportement attendu pour une adresse d'expédition sans historique d'envoi (voir §8.2 pour les pistes d'amélioration de la délivrabilité).
+Email réellement reçu, déclenché par le job planifié quotidien (voir §5.7). Il applique les seuils partagés `StockSeuils` et contient deux listes : « Produits en rupture imminente (moins de 5 unités) », avec « Telephone iphone 14 Pro (quantité restante : 3) », et « Produits en stock bas (de 5 à 9 unités) », avec « Chargeur Dell (quantité restante : 8) ». Lors du test, l'email est arrivé dans le dossier spam du destinataire : c'est une limite connue de l'envoi SMTP simple, sans authentification du domaine expéditeur (voir §9 pour les pistes d'amélioration de la délivrabilité). Il a été signalé comme « non spam » avant la capture, ce qui explique qu'il apparaisse ici dans la boîte de réception.
 
 ### 7.11 Couverture de tests automatisés
 

@@ -179,6 +179,12 @@ Le dépôt contient un workflow GitHub Actions dans [.github/workflows/ci-backen
 - l'exécution des tests
 - le packaging de l'application
 
+## Outils et assistance
+
+ChatGPT a été consulté pendant le développement.
+Claude Code a écrit, à partir d'instructions de l'auteur, l'alerte email, l'archivage PDF, l'estimation de rupture, les droits par rôle, les tests et la documentation technique.
+L'auteur a défini les besoins, relu et validé chaque modification.
+
 ## Contribution
 
 Les contributions sont les bienvenues. Consultez [CONTRIBUTING.md](CONTRIBUTING.md) pour les instructions.
