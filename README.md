@@ -173,11 +173,19 @@ VALUES ('prenom.nom', '<hash BCrypt du mot de passe>', 'ADMIN');
 
 ## Intégration continue
 
-Le dépôt contient un workflow GitHub Actions dans [.github/workflows/ci-backend.yml](.github/workflows/ci-backend.yml) qui vérifie automatiquement :
+Le dépôt contient deux workflows GitHub Actions, exécutés à chaque push et pull request vers `main` :
+
+[.github/workflows/ci-backend.yml](.github/workflows/ci-backend.yml) vérifie automatiquement :
 
 - la compilation du backend
 - l'exécution des tests
 - le packaging de l'application
+
+[.github/workflows/ci-frontend.yml](.github/workflows/ci-frontend.yml) vérifie automatiquement, sous Node 22 :
+
+- l'installation des dépendances (`npm ci`)
+- l'exécution des tests (Vitest)
+- le build de production Angular
 
 ## Outils et assistance
 
