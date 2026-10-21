@@ -130,15 +130,46 @@ npm start        # ou : ng serve
 
 L'application sera disponible sur http://localhost:4200.
 
+En local, aucune autre variable n'est nécessaire : sans profil précisé, le backend démarre avec le profil `dev` (`spring.profiles.default=dev`), qui fournit une clé JWT de développement ([application-dev.properties](backend/src/main/resources/application-dev.properties)) et crée les comptes de démonstration ci-dessous.
+
 ### Comptes de démonstration
 
-Au premier démarrage, le backend crée automatiquement un compte par rôle :
+En profil `dev` uniquement, au premier démarrage, le backend crée automatiquement un compte par rôle :
 
 | Identifiant | Mot de passe | Rôle |
 |---|---|---|
 | `admin` | `admin123` | Administrateur |
 | `gestionnaire` | `gestionnaire123` | Gestionnaire |
 | `caissier` | `caissier123` | Caissier |
+
+## Configuration en production
+
+En production, activez le profil `prod` : la clé JWT de développement et les comptes de démonstration ne sont alors **pas** chargés.
+
+```bash
+export SPRING_PROFILES_ACTIVE=prod
+export JWT_SECRET="$(openssl rand -base64 48)"   # obligatoire, au moins 32 caractères
+```
+
+Sans `JWT_SECRET`, ou avec une clé de moins de 32 caractères, l'application refuse de démarrer (`IllegalStateException : Définir la variable d'environnement JWT_SECRET`). Le code ne contient aucune clé de secours. Une clé connue de tous permettrait de forger des tokens valides. Changer la clé déconnecte tous les utilisateurs, car leurs tokens deviennent invalides.
+
+| Variable | Obligatoire | Rôle |
+|---|---|---|
+| `SPRING_PROFILES_ACTIVE` | oui | `prod` (désactive le profil `dev`) |
+| `JWT_SECRET` | oui | Clé de signature des tokens JWT, au moins 32 caractères |
+| `DB_USERNAME` / `DB_PASSWORD` | oui | Identifiants PostgreSQL (`DB_USERNAME` vaut `postgres` par défaut) |
+| `MAIL_HOST` / `MAIL_PORT` | pour l'alerte stock | Serveur SMTP (par défaut `localhost` / `587`) |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | pour l'alerte stock | Identifiants SMTP |
+| `ALERTE_STOCK_DESTINATAIRE` | pour l'alerte stock | Adresse qui reçoit l'alerte quotidienne |
+| `ALERTE_STOCK_CRON` | non | Planification de l'alerte (par défaut `0 0 8 * * *`, tous les jours à 8h) |
+| `FACTURE_STOCKAGE_DOSSIER` | non | Dossier d'archivage des factures PDF (par défaut `./factures`) |
+
+**Comptes utilisateurs :** aucun compte n'est créé automatiquement en production. Les comptes `admin`, `gestionnaire` et `caissier` et leurs mots de passe publics n'existent qu'en profil `dev`. Créez les comptes manuellement dans la table `utilisateurs`. Le mot de passe doit y être haché avec BCrypt, et le rôle doit valoir `ADMIN`, `GESTIONNAIRE` ou `CAISSIER` :
+
+```sql
+INSERT INTO utilisateurs (username, password, role)
+VALUES ('prenom.nom', '<hash BCrypt du mot de passe>', 'ADMIN');
+```
 
 ## Intégration continue
 

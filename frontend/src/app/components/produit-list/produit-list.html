@@ -22,6 +22,8 @@
 }
 
 <!-- AJOUT DE LA CARD BOOTSTRAP -->
+<!-- Formulaire d'ajout / modification de produit (masqué au caissier : le serveur refuse POST et PUT) -->
+@if (authService.hasAnyRole(['ROLE_ADMIN', 'ROLE_GESTIONNAIRE'])) {
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body p-4">
     <!-- Titre discret et élégant -->
@@ -82,6 +84,7 @@
     </form>
   </div>
 </div>
+}
 <!-- FIN DE LA CARD BOOTSTRAP -->
 
 <hr>
@@ -150,7 +153,9 @@
       Quantité
       </th>
   
-      <th>Action</th>
+      @if (authService.hasAnyRole(['ROLE_ADMIN', 'ROLE_GESTIONNAIRE'])) {
+        <th>Action</th>
+      }
 
     </tr>
 
@@ -177,16 +182,23 @@
        <td>
 
         <!--Condition pour afficher la quantité avec un badge de couleur selon la valeur-->
-        @if (produit.quantite > 10) {
+        @if (niveauStock(produit.quantite) === 'ok') {
 
             <span class="badge bg-success">
                 {{ produit.quantite }}
             </span>
         }
 
-        @else if (produit.quantite > 0) {
+        @else if (niveauStock(produit.quantite) === 'bas') {
 
             <span class="badge bg-warning text-dark">
+                {{ produit.quantite }}
+            </span>
+        }
+
+        @else if (niveauStock(produit.quantite) === 'critique') {
+
+            <span class="badge bg-danger">
                 {{ produit.quantite }}
             </span>
         }
@@ -200,6 +212,8 @@
 
         </td>
 
+        <!-- Modifier, Réapprovisionner et Supprimer : rien pour le caissier, donc pas de colonne -->
+        @if (authService.hasAnyRole(['ROLE_ADMIN', 'ROLE_GESTIONNAIRE'])) {
         <td>
 
          <button class="btn btn-warning" (click)="modifierProduit(produit)">
@@ -208,13 +222,11 @@
 
          </button>
 
-         @if (authService.hasAnyRole(['ROLE_ADMIN', 'ROLE_GESTIONNAIRE'])) {
-           <button class="btn btn-outline-success ms-1" (click)="ouvrirReapprovisionnement(produit)">
+         <button class="btn btn-outline-success ms-1" (click)="ouvrirReapprovisionnement(produit)">
 
-             📦 Réapprovisionner
+           📦 Réapprovisionner
 
-           </button>
-         }
+         </button>
 
          @if (authService.hasRole('ROLE_ADMIN')) {
            <button class="btn btn-danger ms-1"
@@ -227,6 +239,7 @@
          }
 
         </td>
+        }
 
       </tr>
 

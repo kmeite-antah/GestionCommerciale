@@ -6,6 +6,7 @@ import { Fournisseur } from '../../models/fournisseur';
 import { FournisseurService } from '../../services/fournisseur.service';
 import { DataRefreshService } from '../../services/data-refresh.service';
 import { AuthService } from '../../services/auth.service';
+import { messageErreurApi } from '../../utils/message-erreur-api';
 
 @Component({
   selector: 'app-fournisseur-list',
@@ -130,7 +131,7 @@ export class FournisseurListComponent implements OnInit {
         },
         error: (err) => {
           console.error('Erreur lors de la modification :', err);
-          this.messageErreur = typeof err.error === 'string' ? err.error : "Impossible de modifier le fournisseur.";
+          this.messageErreur = messageErreurApi(err, "Impossible de modifier le fournisseur.");
           this.viderMessageApresDelai();
           this.cdr.markForCheck();
         }
@@ -149,7 +150,7 @@ export class FournisseurListComponent implements OnInit {
         },
         error: (err) => {
           console.error("Erreur lors de l'ajout :", err);
-          this.messageErreur = typeof err.error === 'string' ? err.error : "Impossible d'ajouter le fournisseur.";
+          this.messageErreur = messageErreurApi(err, "Impossible d'ajouter le fournisseur.");
           this.viderMessageApresDelai();
           this.cdr.markForCheck();
         }

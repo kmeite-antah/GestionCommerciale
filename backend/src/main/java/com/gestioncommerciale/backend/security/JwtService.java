@@ -27,30 +27,46 @@ public class JwtService {
 
     public JwtService(@Value("${jwt.secret:}") String secret,
                       @Value("${jwt.expiration-ms:3600000}") long jwtExpirationMs) {
-        // Si aucune secret key n'est donnée, on utilise une valeur par défaut.
-        // En production, il faut mettre une vraie clé secrète dans les propriétés.
-        String effectiveSecret = (secret == null || secret.isBlank())
-                ? "gestion-commerciale-jwt-secret-key-2026-application"
-                : secret;
+        // Aucune clé de secours dans le code : une clé connue de tous permettrait de forger
+        // des tokens valides. Sans secret configuré, l'application refuse de démarrer.
+        // En local, le profil "dev" (application-dev.properties) fournit une clé de développement.
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException(
+                    "Aucune clé JWT configurée (jwt.secret est vide). "
+                            + "Définir la variable d'environnement JWT_SECRET (au moins 32 caractères).");
+        }
 
         // On prépare la clé de signature du JWT.
-        this.secretKey = buildSecretKey(effectiveSecret);
+        this.secretKey = buildSecretKey(secret);
         this.jwtExpirationMs = jwtExpirationMs;
     }
 
+    // Taille minimale d'une clé HMAC-SHA256 : 256 bits, soit 32 octets.
+    private static final int TAILLE_MIN_CLE_OCTETS = 32;
+
     // Crée une clé secrète compatible avec la librairie JWT.
+    // Une clé trop courte est refusée : la compléter avec une suite fixe (connue de tous)
+    // ne la rendrait pas plus sûre, seulement plus longue.
     private SecretKey buildSecretKey(String secret) {
+        // Si la clé est encodée en Base64 (ex: openssl rand -base64 48) et assez longue une
+        // fois décodée, on utilise les octets décodés.
         try {
-            // Si la clé est déjà encodée en Base64, on la décode.
-            return Keys.hmacShaKeyFor(Base64.getDecoder().decode(secret));
-        } catch (IllegalArgumentException ex) {
-            // Sinon, on utilise la chaîne brute et on la complète si nécessaire.
-            String normalized = secret;
-            if (normalized.length() < 32) {
-                normalized = normalized + "012345678901234567890123456789";
+            byte[] decodee = Base64.getDecoder().decode(secret);
+            if (decodee.length >= TAILLE_MIN_CLE_OCTETS) {
+                return Keys.hmacShaKeyFor(decodee);
             }
-            return Keys.hmacShaKeyFor(normalized.getBytes(StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException ex) {
+            // Pas du Base64 valide : on utilise la chaîne brute ci-dessous.
         }
+
+        byte[] brute = secret.getBytes(StandardCharsets.UTF_8);
+        if (brute.length < TAILLE_MIN_CLE_OCTETS) {
+            throw new IllegalStateException(
+                    "Clé JWT trop courte (" + brute.length + " octets). "
+                            + "Définir la variable d'environnement JWT_SECRET avec au moins "
+                            + TAILLE_MIN_CLE_OCTETS + " caractères.");
+        }
+        return Keys.hmacShaKeyFor(brute);
     }
 
     // Génère un token JWT pour un utilisateur donné, en y intégrant son rôle

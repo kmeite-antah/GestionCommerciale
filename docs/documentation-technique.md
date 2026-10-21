@@ -51,7 +51,7 @@ L'application couvre l'ensemble du cycle d'une activité commerciale :
 | **Facturation PDF** | jsPDF + jspdf-autotable (génération côté client, à l'usage immédiat) et OpenPDF (génération côté serveur, pour l'archivage — voir §5.7) |
 | **Export tabulaire** | ExcelJS |
 | **Notifications** | Spring Mail (SMTP) + job planifié (`@Scheduled`) |
-| **Tests** | JUnit 5 / Mockito / AssertJ (backend), Vitest via le builder natif `@angular/build:unit-test` (frontend) |
+| **Tests** | JUnit 5 / Mockito / AssertJ, Spring MockMvc et Spring Security Test sur base H2 en mémoire (backend), Vitest via le builder natif `@angular/build:unit-test` (frontend) |
 | **Intégration continue** | GitHub Actions (compilation, tests, packaging) |
 
 ---
@@ -81,7 +81,7 @@ flowchart TB
         PG[("PostgreSQL")]
     end
 
-    UI -- "HTTPS + Bearer <JWT>" --> FILTER
+    UI -- "HTTPS + Bearer #lt;JWT#gt;" --> FILTER
     FILTER --> SEC
     SEC --> CTRL
     CTRL --> SERV
@@ -110,13 +110,13 @@ flowchart LR
 
 | Package | Rôle |
 |---|---|
-| `controller` | Expose les endpoints REST (8 contrôleurs : Auth, Client, Produit, Commande, CommandeFournisseur, Fournisseur, Stock, Dashboard, AuditLog) |
-| `service` / `service.impl` | Contient les règles de gestion (calcul de montant, vérification de stock, transitions de statut) |
+| `controller` | Expose les endpoints REST (10 contrôleurs : Auth, Client, Produit, Commande, CommandeFournisseur, Fournisseur, Stock, Dashboard, AuditLog, Notification) |
+| `service` / `service.impl` | Contient les règles de gestion (calcul de montant, vérification de stock, transitions de statut). `StockSeuils` y centralise les seuils d'alerte de stock (voir §5.5) |
 | `repository` | Interfaces Spring Data JPA pour l'accès à PostgreSQL |
-| `model` | Entités JPA (13 entités métier) |
-| `dto` | Objets de transfert entre l'API et le frontend, découplés des entités |
+| `model` | 10 entités JPA (`Client`, `Produit`, `Commande`, `LigneCommande`, `Fournisseur`, `CommandeFournisseur`, `LigneCommandeFournisseur`, `MouvementStock`, `AuditLog`, `Utilisateur`) et 4 énumérations (`StatutCommande`, `StatutCommandeFournisseur`, `TypeMouvement`, `TypeAction`) |
+| `dto` | Objets de transfert entre l'API et le frontend, découplés des entités. Ils portent les règles de validation Bean Validation, vérifiées par `@Valid` dans les contrôleurs (voir §4.4) |
 | `mapper` | Conversion entité ↔ DTO |
-| `security` | Filtre JWT, configuration Spring Security, gestion des rôles |
+| `security` | Filtre JWT, configuration Spring Security, gestion des rôles, création des comptes de démonstration en profil `dev` (`UtilisateurSeeder`) |
 | `exception` | Exceptions métier dédiées (ex. `StockInsuffisantException`, `FactureNotFoundException`) et gestion centralisée des erreurs HTTP |
 | `scheduler` | Jobs planifiés (`@Scheduled`) — actuellement l'alerte de stock quotidienne |
 
@@ -150,6 +150,10 @@ frontend/src/app/
 │   └── role.guard.ts           # Bloque l'accès selon le rôle
 ├── interceptors/
 │   └── jwt.interceptor.ts      # Attache automatiquement le token JWT
+├── constants/
+│   └── stock-seuils.ts         # Seuils d'alerte de stock, identiques à StockSeuils côté serveur
+├── utils/
+│   └── message-erreur-api.ts   # Extrait un message lisible d'une erreur renvoyée par l'API
 └── models/                     # Interfaces TypeScript (miroir des DTO backend)
 ```
 
@@ -157,6 +161,8 @@ frontend/src/app/
 - Le `jwt.interceptor.ts` attache automatiquement l'en-tête `Authorization: Bearer <token>` à toute requête vers l'API, sans dupliquer cette logique dans chaque service.
 - Le composant `scanner-code-barres` est mutualisé : il est utilisé à la fois dans le catalogue produits (recherche) et dans la prise de commande (ajout rapide d'un produit).
 - Les guards (`auth.guard`, `role.guard`) empêchent l'accès à une route côté client selon l'authentification et le rôle, en complément (et non en remplacement) du contrôle réel effectué côté serveur par Spring Security.
+- Dans les composants, l'affichage des formulaires et des boutons d'action dépend du rôle, via `authService.hasRole(...)` et `authService.hasAnyRole([...])`. L'interface ne montre donc à chaque rôle que les actions que le serveur accepte (voir §4.2).
+- Les erreurs renvoyées par l'API sont affichées par `messageErreurApi(...)`. Le serveur renvoie soit un texte simple, soit, pour une erreur de validation, un objet `{ champ: message }` (voir §4.4). La fonction affiche le texte, ou le premier message de l'objet, et un message générique en dernier recours.
 
 ---
 
@@ -164,7 +170,7 @@ frontend/src/app/
 
 ### 3.1 Diagramme de classes
 
-Le modèle de données est composé de 13 entités JPA. Les tables `commandes` (ventes) et `commandes_fournisseurs` (achats) suivent le même schéma composition (commande / ligne / produit), mais sont volontairement séparées car elles portent des règles de gestion différentes (une vente décrémente le stock immédiatement, un achat ne l'incrémente qu'à la réception).
+Le modèle de données est composé de 10 entités JPA, complétées par 4 énumérations de statut et de type. Les tables `commandes` (ventes) et `commandes_fournisseurs` (achats) suivent le même schéma composition (commande / ligne / produit), mais sont volontairement séparées car elles portent des règles de gestion différentes (une vente décrémente le stock immédiatement, un achat ne l'incrémente qu'à la réception).
 
 ```mermaid
 classDiagram
@@ -278,7 +284,7 @@ classDiagram
 - **Prix figé à la ligne de commande** : `LigneCommande.prixUnitaire` et `LigneCommandeFournisseur.prixAchatUnitaire` copient le prix au moment de la transaction plutôt que de le lire dynamiquement depuis `Produit`. Ainsi, une modification ultérieure du prix catalogue n'altère jamais le montant d'une commande déjà passée.
 - **Cascade sur les lignes** : `Commande` et `CommandeFournisseur` déclarent `cascade = CascadeType.ALL, orphanRemoval = true` sur leurs lignes : la persistance, la mise à jour et la suppression des lignes suivent automatiquement celles de la commande parente.
 - **Référence lisible pour les commandes fournisseurs** : chaque `CommandeFournisseur` reçoit une référence générée côté serveur au format `CF-<année>-<séquence>` (ex. `CF-2026-0007`), plus lisible qu'un identifiant technique pour un usage métier (bons de commande, échanges avec le fournisseur).
-- **Journal d'audit en écriture seule** : une fois créée, une ligne `AuditLog` n'est plus jamais modifiée ni supprimée par l'application — elle ne porte donc aucun setter métier au-delà de la construction initiale, afin de garantir l'intégrité de la trace.
+- **Journal d'audit en écriture seule** : une fois créée, aucune opération de l'application ne modifie ni ne supprime une ligne `AuditLog` : le service n'expose que l'écriture d'une nouvelle ligne et la lecture du journal, afin de garantir l'intégrité de la trace. Cette protection est applicative : elle ne repose pas sur une contrainte de la base de données.
 
 ---
 
@@ -288,28 +294,27 @@ classDiagram
 
 L'application n'utilise aucune session côté serveur (`SessionCreationPolicy.STATELESS`). Chaque requête protégée doit porter un token JWT dans l'en-tête `Authorization: Bearer <token>`, vérifié par un filtre dédié (`JwtAuthenticationFilter`) exécuté avant le filtre d'authentification standard de Spring Security.
 
+La clé de signature des tokens est lue depuis la variable d'environnement `JWT_SECRET` (propriété `jwt.secret`). Le code ne contient aucune clé de secours : si la clé est absente ou fait moins de 32 caractères, `JwtService` lève une `IllegalStateException` et l'application refuse de démarrer. En local, le profil `dev`, actif par défaut (`spring.profiles.default=dev`), fournit une clé de développement dans `application-dev.properties`. Les comptes de démonstration (`admin`, `gestionnaire`, `caissier`) ne sont créés par `UtilisateurSeeder` qu'en profil `dev` (`@Profile("dev")`). En production (`SPRING_PROFILES_ACTIVE=prod`), aucun compte n'est créé automatiquement.
+
 ### 4.2 Rôles applicatifs
 
 Trois rôles sont définis, avec des permissions strictement différenciées, appliquées **côté serveur** dans `SecurityConfig` (les guards Angular ne sont qu'un confort d'interface, pas une garantie de sécurité) :
 
-| Rôle | Périmètre d'accès |
-|---|---|
-| **ADMIN** | Accès complet : tableau de bord, stock, achats, suppression de données, journal d'audit |
-| **GESTIONNAIRE** | Tableau de bord, stock, fournisseurs, achats et commandes — sans suppression ni accès au journal d'audit |
-| **CAISSIER** | Prise de commande et facturation uniquement |
+**Matrice des droits (`SecurityConfig`) :** Spring Security applique la première règle qui correspond à la requête. Les règles précises (méthode HTTP et chemin) sont donc placées avant les règles générales (chemin seul).
 
-**Règles d'autorisation par ressource :**
+| Ordre | Méthode | Chemins | Rôles autorisés |
+|---|---|---|---|
+| 1 | `OPTIONS` | `/**` | Public |
+| 2 | Toutes | `/`, `/index`, `/home`, `/auth/**`, `/swagger-ui/**`, `/v3/api-docs/**`, `/actuator/health` | Public |
+| 3 | `DELETE` | `/api/clients/**`, `/api/produits/**`, `/api/commandes/**`, `/api/fournisseurs/**` | `ADMIN` |
+| 4 | Toutes | `/api/audit-logs/**`, `/api/notifications/**` | `ADMIN` |
+| 5 | `GET` | `/api/clients/**`, `/api/produits/**` (dont `/api/produits/recherche/code-barre`) | `ADMIN`, `GESTIONNAIRE`, `CAISSIER` |
+| 6 | Autres (`POST`, `PUT`) | `/api/clients/**`, `/api/produits/**` | `ADMIN`, `GESTIONNAIRE` |
+| 7 | Toutes (hors `DELETE`, traité en 3) | `/api/dashboard/**`, `/api/stock/**`, `/api/fournisseurs/**`, `/api/commandes-fournisseurs/**` | `ADMIN`, `GESTIONNAIRE` |
+| 8 | Toutes (hors `DELETE`, traité en 3) | `/api/commandes/**` (liste, création, annulation, facture PDF) | `ADMIN`, `GESTIONNAIRE`, `CAISSIER` |
+| 9 | Toutes | Toute autre route | Tout utilisateur authentifié (filet de sécurité) |
 
-| Ressource / méthode | Rôles autorisés |
-|---|---|
-| `DELETE /api/clients`, `/api/produits`, `/api/commandes` | `ADMIN` uniquement |
-| `/api/dashboard/**` | `ADMIN`, `GESTIONNAIRE` |
-| `/api/stock/**` | `ADMIN`, `GESTIONNAIRE` |
-| `/api/commandes/**` (hors suppression) | `ADMIN`, `GESTIONNAIRE`, `CAISSIER` |
-| `/api/fournisseurs/**`, `/api/commandes-fournisseurs/**` | `ADMIN`, `GESTIONNAIRE` |
-| `/api/audit-logs/**` | `ADMIN` uniquement |
-| `/api/notifications/**` | `ADMIN` uniquement |
-| `/auth/**`, `/swagger-ui/**`, `/v3/api-docs/**` | Public (sans authentification) |
+`/api/commandes-fournisseurs` n'expose aucune route `DELETE` : la validation et l'annulation passent par `PATCH`. L'interface masque à chaque rôle les actions que le serveur lui refuse : pas de formulaire ni de bouton Modifier, Supprimer ou Réapprovisionner pour le caissier, pas de bouton Supprimer pour le gestionnaire. La matrice est vérifiée par `SecurityAutorisationsTest` (voir §7.11).
 
 **Illustration — tentative d'accès à une route non autorisée**
 
@@ -319,7 +324,21 @@ Un utilisateur connecté avec un rôle insuffisant qui tente d'accéder directem
 
 ### 4.3 Traçabilité
 
-Chaque création, modification ou suppression sur les entités métier (`Client`, `Produit`, `Fournisseur`, `Commande`, `CommandeFournisseur`) déclenche l'enregistrement d'une ligne dans le journal d'audit (`AuditLogService.enregistrer(...)`), avec l'utilisateur à l'origine de l'action, l'entité concernée, un horodatage et une description lisible de l'action effectuée.
+Chaque création, modification ou suppression sur les entités métier (`Client`, `Produit`, `Fournisseur`, `Commande`) déclenche l'enregistrement d'une ligne dans le journal d'audit (`AuditLogService.enregistrer(...)`), avec l'utilisateur à l'origine de l'action, l'entité concernée, un horodatage et une description lisible de l'action effectuée. Pour les commandes fournisseur, la création, la validation, l'annulation et la réception sont également journalisées.
+
+### 4.4 Validation des données
+
+Le serveur est l'autorité : ses règles de validation sont au moins aussi strictes que celles des formulaires Angular. Ainsi, une requête envoyée directement à l'API, sans passer par l'interface, ne peut pas enregistrer une donnée que le formulaire aurait refusée.
+
+| Donnée | Formulaire Angular | DTO backend (Bean Validation) |
+|---|---|---|
+| Téléphone client | Obligatoire, `pattern="^[0-9]{10}$"` | `@NotBlank`, `@Pattern(regexp = "^[0-9]{10}$")` : « Le numéro de téléphone doit comporter exactement 10 chiffres » |
+| Email client / fournisseur | Obligatoire, format email | `@NotBlank`, `@Email` |
+| Prix d'un produit | Obligatoire, `min="0.01"`, contrôle `prix <= 0` | `@NotNull`, `@DecimalMin(value = "0", inclusive = false)` : « Le prix doit être supérieur à 0 » |
+| Quantité d'un produit | Obligatoire | `@NotNull`, `@Min(0)` (le serveur est plus strict) |
+| Téléphone fournisseur | Obligatoire, au moins 10 caractères | `@NotBlank`, `@Size(min = 10, max = 20)` (le serveur est plus strict) |
+
+Les contrôleurs déclenchent la validation avec `@Valid` sur les créations (`POST`) et les modifications (`PUT`). En cas d'échec, `GlobalExceptionHandler` intercepte `MethodArgumentNotValidException` et renvoie une réponse **400 Bad Request** dont le corps associe chaque champ en erreur à son message, par exemple `{ "telephone": "Le numéro de téléphone doit comporter exactement 10 chiffres" }`. Côté interface, `messageErreurApi(...)` affiche ce message tel quel (voir §2.3). Ces règles sont vérifiées par `DtoValidationTest` (validation des DTO) et `ValidationErreurApiTest` (réponse 400 de bout en bout).
 
 ---
 
@@ -348,7 +367,7 @@ sequenceDiagram
         JS-->>AC: token JWT
         AC-->>UI: 200 OK { token, role }
         UI->>UI: Stocke le token (AuthService)
-        UI->>CTRL: Requête API + Authorization: Bearer <token>
+        UI->>CTRL: Requête API + Authorization: Bearer #lt;token#gt;
         CTRL->>F: Interception par JwtAuthenticationFilter
         F->>JS: extractUsername(jwt) / isTokenValid(jwt)
         JS-->>F: token valide
@@ -442,12 +461,14 @@ sequenceDiagram
     participant CFS as CommandeFournisseurServiceImpl
     participant PR as ProduitRepository
     participant MS as MouvementStockService
+    participant AL as AuditLogService
 
     Gestionnaire->>UI: Sélectionne fournisseur, ajoute des lignes (produit, quantité, prix d'achat)
     UI->>CFC: POST /api/commandes-fournisseurs
     CFC->>CFS: creerCommandeFournisseur(dto)
     CFS->>CFS: Génère la référence (ex. CF-2026-0007)
     CFS->>CFS: statut = BROUILLON, calcule le montant total
+    CFS->>AL: enregistrer(CREATION, "CommandeFournisseur", ...)
     CFS-->>CFC: CommandeFournisseurDTO
     CFC-->>UI: 201 Created (statut BROUILLON)
 
@@ -455,19 +476,27 @@ sequenceDiagram
     UI->>CFC: PATCH /api/commandes-fournisseurs/{id}/valider
     CFC->>CFS: validerCommandeFournisseur(id)
     CFS->>CFS: Vérifie statut == BROUILLON, passe à VALIDEE
+    CFS->>AL: enregistrer(MODIFICATION, "CommandeFournisseur", "... a été validée")
     CFS-->>UI: 200 OK (statut VALIDEE)
 
-    Gestionnaire->>UI: Clique "Valider la réception"
-    UI->>CFC: PATCH /api/commandes-fournisseurs/{id}/recevoir
+    Gestionnaire->>UI: Clique "Valider la réception" (bouton affiché seulement au statut VALIDEE)
+    UI->>CFC: POST /api/commandes-fournisseurs/{id}/recevoir
     CFC->>CFS: recevoirCommandeFournisseur(id)
-    loop Pour chaque ligne de la commande
-        CFS->>PR: Incrémente la quantité du produit
-        CFS->>MS: enregistrerEntreeAutomatique(produit, quantite, "Réception commande fournisseur #ref")
+    alt Statut différent de VALIDEE (BROUILLON, LIVREE ou ANNULEE)
+        CFS-->>UI: 409 Conflict (StatutCommandeFournisseurInvalideException)
+    else Statut VALIDEE
+        loop Pour chaque ligne de la commande
+            CFS->>PR: Incrémente la quantité du produit
+            CFS->>MS: enregistrerEntreeAutomatique(produit, quantite, "Réception commande fournisseur #ref")
+        end
+        CFS->>CFS: statut = LIVREE
+        CFS->>AL: enregistrer(MODIFICATION, "CommandeFournisseur", "... a été réceptionnée, stock mis à jour")
+        CFS-->>CFC: CommandeFournisseurDTO
+        CFC-->>UI: 200 OK (statut LIVREE, stock mis à jour)
     end
-    CFS->>CFS: statut = LIVREE
-    CFS-->>CFC: CommandeFournisseurDTO
-    CFC-->>UI: 200 OK (statut LIVREE, stock mis à jour)
 ```
+
+Le cycle impose `BROUILLON → VALIDEE → LIVREE`. Une commande en brouillon doit d'abord être validée avant de pouvoir être réceptionnée. Une commande au statut `BROUILLON` ou `VALIDEE` peut aussi être annulée (`PATCH /api/commandes-fournisseurs/{id}/annuler`), ce qui est également journalisé.
 
 ### 5.5 Détection des alertes de stock et estimation du délai avant rupture (tableau de bord)
 
@@ -481,7 +510,7 @@ sequenceDiagram
     participant MSR as MouvementStockRepository
 
     Utilisateur->>UI: Ouvre le tableau de bord
-    UI->>DC: GET /api/dashboard/ruptures-stock
+    UI->>DC: GET /api/dashboard/stats/ruptures-stock
     DC->>DS: getRupturesStock()
     DS->>PR: findByActifTrueAndQuantiteLessThanEqualOrderByQuantiteAsc(seuil=9)
     PR-->>DS: Liste des produits actifs sous le seuil, triée par quantité croissante
@@ -500,7 +529,7 @@ sequenceDiagram
 
     DS-->>DC: Liste des produits en alerte, avec estimation par produit
     DC-->>UI: 200 OK
-    UI->>UI: Classe chaque produit : "Rupture imminente" (quantité = 0) ou "Stock bas" (quantité > 0)
+    UI->>UI: Classe chaque produit : "Rupture imminente" (quantité < 5) ou "Stock bas" (quantité de 5 à 9)
     UI-->>Utilisateur: Affiche l'alerte avec délai estimé, ou "vélocité insuffisante pour estimer" si indéterminé
 ```
 
@@ -521,8 +550,8 @@ sequenceDiagram
     ALC->>ALC: Vérifie le rôle ADMIN (SecurityConfig)
     ALC->>ALS: getAllLogs(pageable)
     ALS->>REPO: findAll(pageable) trié par date décroissante
-    REPO-->>ALS: Page<AuditLog>
-    ALS-->>ALC: Page<AuditLogDTO>
+    REPO-->>ALS: Page#lt;AuditLog#gt;
+    ALS-->>ALC: Page#lt;AuditLogDTO#gt;
     ALC-->>UI: 200 OK
     UI-->>Admin: Affiche la liste paginée (date, utilisateur, action, entité, détails)
 ```
@@ -544,7 +573,7 @@ sequenceDiagram
     alt Liste vide
         NS-->>CRON: Ne fait rien (aucun mail envoyé)
     else Au moins un produit concerné
-        NS->>NS: Sépare rupture imminente (quantité = 0) et stock bas (quantité > 0)
+        NS->>NS: Sépare rupture imminente (quantité < 5) et stock bas (quantité de 5 à 9)
         NS->>NS: Construit le corps du message (texte brut)
         NS->>MAIL: send(message)
         alt Envoi réussi
@@ -553,7 +582,7 @@ sequenceDiagram
             MAIL-->>NS: Exception
             NS-->>CRON: Exception propagée
             CRON->>CRON: Capture l'exception, journalise un avertissement
-            Note over CRON: L'échec n'interrompt jamais l'application ;\nnouvelle tentative au prochain déclenchement planifié
+            Note over CRON: L'échec n'interrompt jamais l'application,<br/>nouvelle tentative au prochain déclenchement planifié
         end
     end
 ```
@@ -670,7 +699,7 @@ Le même écran en thème sombre, géré par `theme.service.ts` côté frontend 
 
 ![Graphiques et alertes de stock](../screenshots/Capture%20d'%C3%A9cran%202026-08-11%20173853.png)
 
-Partie basse du tableau de bord : évolution du chiffre d'affaires sur 12 mois (courbe Chart.js), répartition des ventes par catégorie (graphique en anneau), classement des 10 produits les plus vendus, nombre de nouveaux clients sur 30 jours, et alertes de stock à deux niveaux distincts — **« Rupture imminente »** (quantité à 0) en rouge et **« Stock bas »** (quantité sous le seuil) en orange. Le délai avant épuisement affiché (ex. « Épuisement estimé : ~42 jours ») n'est plus un texte générique : il est calculé à partir de la vélocité de vente réelle du produit sur les 14 derniers jours (voir §5.5 pour le détail du calcul). Lorsque l'historique de ventes récent est insuffisant pour estimer un rythme fiable, l'application l'indique explicitement (« Vélocité de vente insuffisante pour estimer ») plutôt que d'afficher un chiffre trompeur.
+Partie basse du tableau de bord : évolution du chiffre d'affaires sur 12 mois (courbe Chart.js), répartition des ventes par catégorie (graphique en anneau), classement des 10 produits les plus vendus, nombre de nouveaux clients sur 30 jours, et alertes de stock à deux niveaux distincts — **« Rupture imminente »** (moins de 5 unités) en rouge et **« Stock bas »** (de 5 à 9 unités) en orange. Un produit n'est signalé qu'à partir de 9 unités ou moins ; les mêmes seuils sont appliqués par la liste des produits et par l'email d'alerte (`StockSeuils` côté serveur, `stock-seuils.ts` côté interface). Le délai avant épuisement affiché (ex. « Épuisement estimé : ~42 jours ») n'est plus un texte générique : il est calculé à partir de la vélocité de vente réelle du produit sur les 14 derniers jours (voir §5.5 pour le détail du calcul). Lorsque l'historique de ventes récent est insuffisant pour estimer un rythme fiable, l'application l'indique explicitement (« Vélocité de vente insuffisante pour estimer ») plutôt que d'afficher un chiffre trompeur.
 
 ### 7.3 Gestion des clients
 
@@ -684,13 +713,13 @@ Formulaire d'ajout d'un nouveau client, avec message de confirmation « Client a
 
 ![Modification client](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20171030.png)
 
-Formulaire client réutilisé à l'identique pour la création et la modification, avec validations en temps réel (nom et prénom obligatoires, format d'email, téléphone à exactement 10 chiffres). Le message de succès en tête de page (« Client mis à jour avec succès ! ») confirme l'action ; les messages d'erreur sous chaque champ apparaissent uniquement si la validation échoue.
+Formulaire client réutilisé à l'identique pour la création et la modification, avec validations en temps réel (nom et prénom obligatoires, format d'email, téléphone à exactement 10 chiffres). Le message de succès en tête de page (« Client mis à jour avec succès ! ») confirme l'action ; les messages d'erreur sous chaque champ apparaissent uniquement si la validation échoue. Les mêmes règles sont appliquées côté serveur (voir §4.4). Le formulaire n'est affiché qu'aux rôles `ADMIN` et `GESTIONNAIRE`, et le caissier consulte la liste sans pouvoir la modifier.
 
 **Liste des clients**
 
 ![Liste des clients](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20171232.png)
 
-Tableau paginé (5 éléments par page ici) avec barre de recherche instantanée, export Excel (`excel-export.service.ts` / ExcelJS), et actions « Modifier » / « Supprimer » par ligne. La suppression déclenche une désactivation logique du client (`actif = false`) plutôt qu'une suppression physique, ce qui préserve l'historique de ses commandes passées.
+Tableau paginé (5 éléments par page ici) avec barre de recherche instantanée, export Excel (`excel-export.service.ts` / ExcelJS), et actions « Modifier » / « Supprimer » par ligne. Le bouton « Modifier » est visible pour `ADMIN` et `GESTIONNAIRE`, et « Supprimer » pour `ADMIN` seulement. Pour le caissier, la colonne Action n'est pas affichée. La suppression déclenche une désactivation logique du client (`actif = false`) plutôt qu'une suppression physique, ce qui préserve l'historique de ses commandes passées.
 
 **Confirmation de suppression**
 
@@ -704,7 +733,7 @@ Message de confirmation après suppression logique d'un client, avant retour au 
 
 ![Nouveau produit](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20171335.png)
 
-Formulaire d'ajout d'un produit : nom, prix (FCFA), description, quantité en stock initiale, catégorie (utilisée pour la ventilation des ventes par catégorie du tableau de bord) et code-barres / QR code optionnel. Le message d'erreur « Le prix doit être supérieur à 0 » illustre la validation métier appliquée avant l'appel à l'API.
+Formulaire d'ajout d'un produit : nom, prix (FCFA), description, quantité en stock initiale, catégorie (utilisée pour la ventilation des ventes par catégorie du tableau de bord) et code-barres / QR code optionnel. Le message d'erreur « Le prix doit être supérieur à 0 » illustre la validation métier appliquée avant l'appel à l'API. La même règle est appliquée par le serveur, avec le même message (voir §4.4). Le formulaire n'est affiché qu'aux rôles `ADMIN` et `GESTIONNAIRE`.
 
 **Formulaire — modification**
 
@@ -722,7 +751,14 @@ Action dédiée « Réapprovisionner » accessible depuis la liste des produits,
 
 ![Liste des produits](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20172024.png)
 
-Catalogue paginé avec recherche, bouton « Scanner un produit » (ouvre le composant `scanner-code-barres` pour retrouver un produit par sa caméra), export Excel, et actions Modifier / Réapprovisionner / Supprimer par ligne. La colonne Quantité utilise un badge coloré pour une lecture rapide de l'état du stock.
+Catalogue paginé avec recherche, bouton « Scanner un produit » (ouvre le composant `scanner-code-barres` pour retrouver un produit par sa caméra), export Excel, et actions Modifier / Réapprovisionner / Supprimer par ligne. Modifier et Réapprovisionner sont visibles pour `ADMIN` et `GESTIONNAIRE`, et Supprimer pour `ADMIN` seulement. Le caissier consulte et scanne les produits sans colonne Action. La colonne Quantité utilise un badge coloré qui suit les mêmes seuils que le tableau de bord (`niveauStock()`, constantes de `stock-seuils.ts`) :
+
+| Quantité | Badge |
+|---|---|
+| 10 ou plus | Vert, avec la quantité |
+| De 5 à 9 | Orange, avec la quantité (stock bas) |
+| De 1 à 4 | Rouge, avec la quantité (rupture imminente) |
+| 0 | Rouge, « Rupture » |
 
 ### 7.5 Ventes — prise de commande et facturation
 
@@ -744,7 +780,7 @@ Historique des ventes avec statut (« Validée »), montant, et deux actions par
 
 ![Historique stock](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20175810.png)
 
-Vue consolidée de tous les mouvements de stock, qu'ils soient automatiques (vente → `SORTIE`, réception fournisseur → `ENTREE`, annulation → `ENTREE`) ou manuels (réapprovisionnement direct). Chaque ligne indique la date, le produit, le type de mouvement, la quantité et un motif traçant son origine (ex. « Vente - Commande #21 », « Réception commande fournisseur #CF-2026-0001 »), ce qui permet de reconstituer entièrement l'historique d'un produit.
+Vue consolidée de tous les mouvements de stock, qu'ils soient automatiques (vente → `SORTIE`, réception fournisseur → `ENTREE`, annulation → `ENTREE`) ou manuels (réapprovisionnement direct). Chaque ligne indique la date, le produit, le type de mouvement, la quantité et un motif traçant son origine (ex. « Vente - Commande #21 », « Réception commande fournisseur #CF-2026-0001 »), ce qui permet de reconstituer entièrement l'historique d'un produit. Cet écran est réservé aux rôles `ADMIN` et `GESTIONNAIRE`, comme l'API `/api/stock/**` qu'il appelle : il n'est pas affiché au caissier.
 
 ### 7.7 Fournisseurs
 
@@ -760,7 +796,7 @@ Vue consolidée de tous les mouvements de stock, qu'ils soient automatiques (ven
 
 ![Liste des fournisseurs](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20180218.png)
 
-Gestion des fournisseurs (raison sociale, email, téléphone, adresse) avec recherche, modification et suppression logique — même principe que pour les clients, afin de préserver l'historique des commandes fournisseur déjà passées.
+Gestion des fournisseurs (raison sociale, email, téléphone, adresse) avec recherche, modification et suppression logique — même principe que pour les clients, afin de préserver l'historique des commandes fournisseur déjà passées. L'écran est réservé aux rôles `ADMIN` et `GESTIONNAIRE`. Le bouton « Supprimer » n'est affiché qu'à l'`ADMIN`, seul autorisé par le serveur à envoyer un `DELETE`.
 
 **Confirmation de suppression**
 
@@ -778,7 +814,12 @@ Sélection du fournisseur, ajout de produits avec quantité et **prix d'achat un
 
 ![Commandes d'achat](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20180846.png)
 
-Liste des commandes fournisseurs avec leur référence générée automatiquement (`CF-2026-000X`), leur statut (Validée / Annulée / Livrée, chacun avec un code couleur dédié), et des actions contextuelles selon le statut : une commande validée peut être réceptionnée (« Valider la réception », qui incrémente le stock — voir §5.4) ou annulée ; une commande déjà livrée ou annulée n'affiche plus d'action, conformément aux règles de transition de statut appliquées côté serveur.
+Liste des commandes fournisseurs avec leur référence générée automatiquement (`CF-2026-000X`), leur statut (Validée / Annulée / Livrée, chacun avec un code couleur dédié), et des actions contextuelles selon le statut :
+- une commande en brouillon peut être validée ou annulée ;
+- une commande validée peut être réceptionnée (« Valider la réception », qui incrémente le stock — voir §5.4) ou annulée ;
+- une commande déjà livrée ou annulée n'affiche plus d'action.
+
+Ces actions suivent les règles de transition de statut appliquées côté serveur. En particulier, le bouton de réception n'apparaît qu'au statut `VALIDEE`, puisque le serveur refuse de réceptionner une commande en brouillon.
 
 ### 7.9 Journal d'audit
 
@@ -810,7 +851,7 @@ Contenu du dossier `factures/` sur le serveur après deux ventes successives : l
 
 ![Email d'alerte stock reçu](../screenshots/Capture%20d'%C3%A9cran%202026-08-11%20204155.png)
 
-Email réellement reçu, déclenché par le job planifié quotidien (voir §5.7), listant les produits en rupture (« Telephone iphone 14 Pro », stock à 0) et en stock bas (« Chargeur Dell », quantité restante : 8). À noter : lors de ce test, le message a été classé par le fournisseur de messagerie dans le dossier spam — un comportement attendu pour une adresse d'expédition sans historique d'envoi (voir §8.2 pour les pistes d'amélioration de la délivrabilité).
+Email réellement reçu, déclenché par le job planifié quotidien (voir §5.7), listant les produits en rupture (« Telephone iphone 14 Pro », stock à 0) et en stock bas (« Chargeur Dell », quantité restante : 8). Cette capture montre l'ancien format du message, qui séparait les produits à 0 de tous les autres. Depuis, l'email applique les seuils partagés `StockSeuils` : une section « rupture imminente (moins de 5 unités) » et une section « stock bas (de 5 à 9 unités) », avec la quantité restante dans les deux (voir §5.7). À noter : lors de ce test, le message a été classé par le fournisseur de messagerie dans le dossier spam — un comportement attendu pour une adresse d'expédition sans historique d'envoi (voir §8.2 pour les pistes d'amélioration de la délivrabilité).
 
 ### 7.11 Couverture de tests automatisés
 
@@ -818,10 +859,19 @@ Deux suites de tests automatisés accompagnent le code applicatif, l'une par cou
 
 | Côté | Outils | Ce qui est couvert |
 |---|---|---|
-| **Backend** | JUnit 5, Mockito, AssertJ | Calcul de vélocité de vente et estimation du délai avant rupture (`DashboardServiceImplTest`, y compris le cas « aucune vente récente ») ; envoi conditionnel de l'alerte stock, avec vérification qu'aucun email n'est envoyé si la liste de ruptures est vide (`NotificationServiceImplTest`) |
-| **Frontend** | Vitest (via `@angular/build:unit-test`, le builder de test natif d'Angular) | Calcul du montant d'une commande (`commande-list.spec.ts`), présence de l'en-tête `Authorization` sur les requêtes API et son absence hors de l'API (`jwt.interceptor.spec.ts`), redirection en cas d'authentification ou de rôle insuffisant (`auth.guard.spec.ts`, `role.guard.spec.ts`), formation correcte des appels HTTP des services (`produit.service.spec.ts`, `commande.service.spec.ts`) |
+| **Backend** | JUnit 5, Mockito, AssertJ, Spring MockMvc, Spring Security Test | Voir le détail par classe ci-dessous |
+| **Frontend** | Vitest (via `@angular/build:unit-test`, le builder de test natif d'Angular) | Calcul du montant d'une commande (`commande-list.spec.ts`), présence de l'en-tête `Authorization` sur les requêtes API et son absence hors de l'API (`jwt.interceptor.spec.ts`), redirection en cas d'authentification ou de rôle insuffisant (`auth.guard.spec.ts`, `role.guard.spec.ts`), formation correcte des appels HTTP des services (`produit.service.spec.ts`, `commande.service.spec.ts`), formulaires, boutons et blocs de page affichés selon le rôle (`client-list.spec.ts`, `produit-list.spec.ts`, `fournisseur-list.spec.ts`, `home.spec.ts`), couleur du badge de stock selon les seuils (`produit-list.spec.ts`), lecture des messages d'erreur de l'API (`message-erreur-api.spec.ts`) |
 
-À l'exécution (`npm test -- --watch=false` côté frontend), l'ensemble de la suite frontend passe : 12 fichiers de tests, 43 tests, tous au vert.
+**Classes de tests backend :**
+
+| Classe | Tests | Ce qui est couvert |
+|---|---|---|
+| `JwtServiceTest` | 4 | Génération et validation d'un token ; refus de démarrer sans clé JWT ou avec une clé de moins de 32 caractères ; acceptation d'une clé de 32 caractères |
+| `DashboardServiceImplTest` | 5 | Calcul de vélocité de vente et estimation du délai avant rupture, y compris le cas « aucune vente récente » |
+| `NotificationServiceImplTest` | 2 | Aucun email envoyé si la liste de ruptures est vide ; séparation de l'email entre « rupture imminente » (moins de 5) et « stock bas » (5 à 9) |
+| `SecurityAutorisationsTest` | 15 | Matrice des droits de §4.2, rôle par rôle (`@WithMockUser`), sur la base H2 de test : refus 403 des actions interdites, accès aux actions permises, refus sans authentification, seeder inactif en test |
+
+À l'exécution (`mvn test`), la suite backend passe : 34 tests, tous au vert. Ce total inclut aussi `DtoValidationTest` (4), `ValidationErreurApiTest` (2) et `BackendApplicationTests` (2). Côté frontend (`npm test -- --watch=false`), la suite passe également : 15 fichiers de tests, 58 tests, tous au vert.
 
 ---
 
@@ -838,6 +888,9 @@ Deux suites de tests automatisés accompagnent le code applicatif, l'une par cou
 - **`Optional<Integer>` pour l'estimation du délai avant rupture** : une vélocité de vente nulle rend l'estimation indéterminée (délai infini). Retourner `Optional.empty()` force l'appelant à traiter explicitement ce cas, plutôt qu'une valeur sentinelle (`-1`, `Integer.MAX_VALUE`...) qu'il serait facile d'oublier de vérifier et d'afficher par erreur comme un chiffre valide.
 - **DTOs découplés des entités JPA** : les contrôleurs n'exposent jamais directement les entités `@Entity`, ce qui évite les problèmes classiques de sérialisation JSON sur les relations bidirectionnelles (boucles infinies) et permet de faire évoluer le modèle de données sans casser le contrat d'API.
 - **JWT stateless** : cohérent avec une architecture purement API REST consommée par une SPA Angular, sans dépendance à une session serveur qui compliquerait un déploiement à plusieurs instances.
+- **Moindre privilège et serveur comme seule autorité** : chaque route n'est ouverte qu'aux rôles qui en ont besoin (§4.2), et les règles de validation du serveur sont au moins aussi strictes que celles des formulaires (§4.4). L'interface masque ce que le serveur refuse, mais la sécurité ne dépend jamais d'elle.
+- **Aucun secret ni compte de démonstration actif par défaut en production** : la clé JWT vient de `JWT_SECRET`, sans valeur de secours dans le code, et les comptes de démonstration sont limités au profil `dev`. Le profil `dev` est actif par défaut, si bien que le lancement local (`./mvnw spring-boot:run`) fonctionne sans aucune configuration supplémentaire (§4.1).
+- **Seuils de stock définis une seule fois par couche** : `StockSeuils` côté serveur (requête du tableau de bord et email d'alerte) et `stock-seuils.ts` côté interface (tableau de bord et badge de la liste des produits) portent les mêmes valeurs (9 et 5), au lieu de nombres répétés dans chaque fichier.
 
 ### 8.2 Difficultés rencontrées et solutions apportées
 
@@ -848,6 +901,8 @@ Deux suites de tests automatisés accompagnent le code applicatif, l'une par cou
 - **Cohérence des autorisations entre frontend et backend** : les guards Angular (`auth.guard`, `role.guard`) empêchent l'accès à une route côté client, mais ne constituent qu'un confort d'ergonomie — toute règle de rôle a été dupliquée et vérifiée en priorité côté serveur dans `SecurityConfig`, seule source de vérité en matière de sécurité.
 - **Délivrabilité des emails automatisés** : lors du premier test réel d'envoi, l'email d'alerte s'est retrouvé classé en spam par le destinataire. C'est un comportement attendu pour une adresse d'expédition récente sans historique d'envoi ni configuration DNS avancée (SPF/DKIM) — non un défaut du code. Pour un déploiement réel au-delà d'une démonstration, ce point demanderait soit l'authentification du domaine d'envoi, soit le recours à un service d'envoi transactionnel dédié plutôt qu'une boîte Gmail standard.
 - **Non-blocage de la commande en cas d'échec d'un traitement annexe** : l'archivage de la facture PDF et l'envoi de l'alerte stock sont tous deux conçus pour échouer silencieusement (journalisation d'un avertissement) sans jamais faire échouer l'opération métier principale (respectivement la création d'une commande, le déclenchement planifié suivant). Ce choix a demandé de bien séparer, dans le code, ce qui doit interrompre une transaction de ce qui peut simplement être retenté ou ignoré.
+- **Seuils de stock incohérents entre les écrans** : à l'origine, le tableau de bord distinguait « rupture imminente » sous 5 unités, l'email ne la déclenchait qu'à 0 unité, et le badge de la liste des produits passait au vert dès 11 unités. Un même produit pouvait donc être signalé différemment selon l'écran. Les seuils ont été regroupés dans `StockSeuils` et `stock-seuils.ts`, et un test vérifie la séparation de l'email (`NotificationServiceImplTest`).
+- **Ordre des règles d'autorisation** : Spring Security applique la première règle qui correspond à la requête. Une règle générale placée trop tôt (par exemple `/api/clients/**` pour `ADMIN` et `GESTIONNAIRE`) aurait masqué une règle plus précise placée après (`GET /api/clients/**` ouvert au caissier). Les règles sont donc ordonnées de la plus précise à la plus générale, et `SecurityAutorisationsTest` vérifie le résultat rôle par rôle.
 - **Test unitaire d'un calcul dépendant du temps** : `calculerVelociteVente` se base sur une fenêtre glissante (`LocalDateTime.now().minusDays(...)`), ce qui rend le test fragile si l'on fige une date en dur. Le test a donc été écrit en simulant directement la valeur retournée par le repository (`sumSortiesDepuis`), sans dépendre de l'horloge système.
 
 ---
@@ -862,7 +917,9 @@ Les points suivants ne sont pas implémentés dans la version actuelle et consti
 - **Prévisions de vente au-delà de la simple vélocité glissante** : l'estimation actuelle du délai avant rupture (§5.5) est volontairement simple ; un modèle tenant compte de la saisonnalité ou des tendances de vente affinerait l'estimation pour les produits à la demande irrégulière.
 - **Notification en cas d'échec d'archivage de facture** : aujourd'hui, un échec de génération PDF côté serveur est uniquement journalisé côté serveur ; un signalement visible à un administrateur (plutôt qu'un simple log) permettrait de détecter plus vite une facture manquante.
 - **Gestion fine des permissions** : les trois rôles actuels (Admin, Gestionnaire, Caissier) couvrent les besoins actuels ; une évolution vers des permissions plus granulaires (par exemple, un gestionnaire limité à certaines catégories de produits) pourrait être envisagée si l'équipe utilisatrice grandit.
-- **Tests end-to-end** : la couverture actuelle (backend et frontend, voir §7.10) porte sur des tests unitaires ; l'ajout de tests de bout en bout (ex. Playwright ou Cypress) sur les parcours critiques (prise de commande complète, cycle achat fournisseur) renforcerait la confiance sur les régressions d'intégration.
+- **Tests end-to-end** : la couverture actuelle (backend et frontend, voir §7.11) porte sur des tests unitaires ; l'ajout de tests de bout en bout (ex. Playwright ou Cypress) sur les parcours critiques (prise de commande complète, cycle achat fournisseur) renforcerait la confiance sur les régressions d'intégration.
+- **Création des comptes en production** : aucun compte n'est créé automatiquement hors profil `dev`, et l'application ne propose pas d'écran d'administration des utilisateurs, si bien que les comptes doivent être insérés manuellement en base avec un mot de passe haché en BCrypt.
+- **Protection du journal d'audit** : le journal n'est protégé que par l'application (écriture par `AuditLogService`, lecture réservée à l'`ADMIN`), et rien n'empêche une personne ayant un accès direct à la base de modifier ou supprimer des lignes d'audit.
 
 ---
 

@@ -6,6 +6,7 @@ import { ChartConfiguration, ChartData } from 'chart.js';
 import { BaseChartDirective } from 'ng2-charts';
 
 import { DashboardService } from '../../services/dashboard.service';
+import { SEUIL_RUPTURE_IMMINENTE } from '../../constants/stock-seuils';
 import { DataRefreshService } from '../../services/data-refresh.service';
 import { ThemeService, Theme } from '../../services/theme.service';
 import {
@@ -264,9 +265,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
     });
   }
 
-  // Rupture imminente (rouge) : quantité entre 0 et 4. Stock bas (orange) : quantité entre 5 et 9.
+  // Rupture imminente (rouge) : quantité sous SEUIL_RUPTURE_IMMINENTE (0 à 4).
+  // Stock bas (orange) : de SEUIL_RUPTURE_IMMINENTE à SEUIL_STOCK_BAS (5 à 9).
   estRuptureImminente(quantite: number): boolean {
-    return quantite < 5;
+    return quantite < SEUIL_RUPTURE_IMMINENTE;
   }
 
   // Formate l'estimation du délai avant rupture calculée côté backend à partir de la vélocité

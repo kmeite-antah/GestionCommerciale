@@ -34,15 +34,13 @@ import com.gestioncommerciale.backend.repository.LigneCommandeRepository;
 import com.gestioncommerciale.backend.repository.MouvementStockRepository;
 import com.gestioncommerciale.backend.repository.ProduitRepository;
 import com.gestioncommerciale.backend.service.DashboardService;
+import com.gestioncommerciale.backend.service.StockSeuils;
 
 @Service
 public class DashboardServiceImpl implements DashboardService {
 
     // Nombre de mois affichés dans l'évolution du chiffre d'affaires.
     private static final int MOIS_HISTORIQUE = 12;
-
-    // Seuil fixe en dessous duquel un produit est considéré en rupture / stock bas.
-    private static final int SEUIL_STOCK_BAS = 9;
 
     // Nombre maximal de produits retournés par le classement des ventes.
     private static final int TOP_PRODUITS_LIMIT = 10;
@@ -129,7 +127,7 @@ public class DashboardServiceImpl implements DashboardService {
     @Override
     public List<ProduitRuptureDTO> getRupturesStock() {
         List<ProduitRuptureDTO> resultat = new ArrayList<>();
-        for (Produit produit : produitRepository.findByActifTrueAndQuantiteLessThanEqualOrderByQuantiteAsc(SEUIL_STOCK_BAS)) {
+        for (Produit produit : produitRepository.findByActifTrueAndQuantiteLessThanEqualOrderByQuantiteAsc(StockSeuils.SEUIL_STOCK_BAS)) {
             Integer joursAvantRupture = calculerJoursAvantRupture(produit).orElse(null);
             resultat.add(new ProduitRuptureDTO(produit.getId(), produit.getNom(), produit.getQuantite(), joursAvantRupture));
         }

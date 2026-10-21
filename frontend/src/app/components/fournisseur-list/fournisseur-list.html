@@ -69,11 +69,14 @@
             <button class="btn btn-warning" (click)="ouvrirEdition(fournisseur)">
               ✏️ Modifier
             </button>
-            <button class="btn btn-danger ms-1"
-                    (click)="supprimerFournisseur(fournisseur.id!)"
-                    [disabled]="idsEnSuppression.has(fournisseur.id!)">
-              🗑️ Supprimer
-            </button>
+            <!-- Suppression réservée aux administrateurs (le serveur refuse le DELETE au gestionnaire) -->
+            @if (authService.hasRole('ROLE_ADMIN')) {
+              <button class="btn btn-danger ms-1"
+                      (click)="supprimerFournisseur(fournisseur.id!)"
+                      [disabled]="idsEnSuppression.has(fournisseur.id!)">
+                🗑️ Supprimer
+              </button>
+            }
           </td>
         </tr>
       }

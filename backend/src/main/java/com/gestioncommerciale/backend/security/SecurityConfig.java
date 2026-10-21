@@ -34,29 +34,41 @@ public class SecurityConfig {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable()) // Désactive CSRF pour une API REST simple.
+                // Principe du moindre privilège : chaque route n'est ouverte qu'aux rôles qui en ont besoin.
+                // Spring Security applique la première règle qui correspond : les règles précises
+                // (méthode HTTP + chemin) passent donc avant les règles générales (chemin seul).
                 .authorizeHttpRequests(auth -> auth
                         // Ces routes sont accessibles sans token.
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/", "/index", "/home").permitAll()
                         .requestMatchers("/auth/**").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/health").permitAll()
-                        // Les actions critiques (suppressions) sont réservées aux administrateurs.
-                        .requestMatchers(HttpMethod.DELETE, "/api/clients/**", "/api/produits/**", "/api/commandes/**")
+
+                        // ADMIN uniquement : suppressions (commandes-fournisseurs n'expose aucun DELETE),
+                        // journal d'audit et déclenchement manuel de l'alerte stock.
+                        .requestMatchers(HttpMethod.DELETE,
+                                "/api/clients/**", "/api/produits/**", "/api/commandes/**", "/api/fournisseurs/**")
                         .hasRole("ADMIN")
-                        // Le tableau de bord est réservé aux administrateurs et aux gestionnaires.
-                        .requestMatchers("/api/dashboard/**").hasAnyRole("ADMIN", "GESTIONNAIRE")
-                        // Les mouvements de stock (entrée, historique) sont réservés aux administrateurs et aux gestionnaires.
-                        .requestMatchers("/api/stock/**").hasAnyRole("ADMIN", "GESTIONNAIRE")
-                        // La prise de commande et la génération de facture sont accessibles aux 3 rôles métier.
-                        .requestMatchers("/api/commandes/**").hasAnyRole("CAISSIER", "GESTIONNAIRE", "ADMIN")
-                        // La gestion des fournisseurs et des commandes d'achat est réservée aux administrateurs et aux gestionnaires.
-                        .requestMatchers("/api/fournisseurs/**").hasAnyRole("ADMIN", "GESTIONNAIRE")
-                        .requestMatchers("/api/commandes-fournisseurs/**").hasAnyRole("ADMIN", "GESTIONNAIRE")
-                        // Le journal d'audit trace les actions de tous les utilisateurs : réservé aux administrateurs.
-                        .requestMatchers("/api/audit-logs/**").hasRole("ADMIN")
-                        // Déclenchement manuel de l'alerte stock : réservé aux administrateurs, comme le cron.
-                        .requestMatchers("/api/notifications/**").hasRole("ADMIN")
-                        // Le reste de l'API (lecture, création) est accessible à tout utilisateur authentifié.
+                        .requestMatchers("/api/audit-logs/**", "/api/notifications/**").hasRole("ADMIN")
+
+                        // Les 3 rôles métier : consultation des clients et des produits
+                        // (y compris la recherche par code-barres utilisée à la caisse).
+                        .requestMatchers(HttpMethod.GET, "/api/clients/**", "/api/produits/**")
+                        .hasAnyRole("ADMIN", "GESTIONNAIRE", "CAISSIER")
+
+                        // ADMIN et GESTIONNAIRE : création et modification des clients et des produits
+                        // (les GET et DELETE ont déjà été traités plus haut).
+                        .requestMatchers("/api/clients/**", "/api/produits/**").hasAnyRole("ADMIN", "GESTIONNAIRE")
+                        // ADMIN et GESTIONNAIRE : tableau de bord, stock, fournisseurs (hors DELETE)
+                        // et commandes d'achat.
+                        .requestMatchers("/api/dashboard/**", "/api/stock/**", "/api/fournisseurs/**",
+                                "/api/commandes-fournisseurs/**")
+                        .hasAnyRole("ADMIN", "GESTIONNAIRE")
+
+                        // Les 3 rôles métier : prise de commande, annulation et facture PDF (hors DELETE).
+                        .requestMatchers("/api/commandes/**").hasAnyRole("ADMIN", "GESTIONNAIRE", "CAISSIER")
+
+                        // Filet de sécurité : toute route non listée exige au moins d'être authentifié.
                         .anyRequest().authenticated())
                 // On ne garde pas de session pour cette API, car on utilise des JWT.
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

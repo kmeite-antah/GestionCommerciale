@@ -2,6 +2,7 @@ package com.gestioncommerciale.backend.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -26,8 +27,9 @@ public class ClientDTO {
     @Email(message = "Format d'email invalide")
     private String email;
 
+    // Même règle que le formulaire Angular (pattern="^[0-9]{10}$") : le serveur ne doit pas être plus permissif.
     @NotBlank(message = "Le téléphone est obligatoire")
-    @Size(min = 10, max = 20, message = "Le téléphone doit contenir entre 10 et 20 caractères")
+    @Pattern(regexp = "^[0-9]{10}$", message = "Le numéro de téléphone doit comporter exactement 10 chiffres")
     private String telephone;
 
     @Size(max = 255, message = "L'adresse ne doit pas dépasser 255 caractères")

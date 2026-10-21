@@ -172,10 +172,14 @@
             </button>
           }
 
-          @if (commande.statut === 'BROUILLON' || commande.statut === 'VALIDEE') {
+          <!-- Le serveur refuse la réception d'une commande non validée (BROUILLON -> VALIDEE -> LIVREE) -->
+          @if (commande.statut === 'VALIDEE') {
             <button class="btn btn-sm btn-success me-1" (click)="recevoir(commande)">
               📦 Valider la réception
             </button>
+          }
+
+          @if (commande.statut === 'BROUILLON' || commande.statut === 'VALIDEE') {
             <button class="btn btn-sm btn-outline-danger" (click)="annuler(commande)">
               Annuler
             </button>

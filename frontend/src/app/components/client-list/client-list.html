@@ -22,7 +22,8 @@
 }
 
 <!-- AJOUT DE LA CARD BOOTSTRAP -->
-<!-- Formulaire d'ajout / modification de Client -->
+<!-- Formulaire d'ajout / modification de Client (masqué au caissier : le serveur refuse POST et PUT) -->
+@if (authService.hasAnyRole(['ROLE_ADMIN', 'ROLE_GESTIONNAIRE'])) {
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body p-4">
     <h5 class="fw-bold mb-3">👤 Nouveau client</h5>
@@ -124,6 +125,7 @@
     </form>
   </div>
 </div>
+}
 <!-- FIN DE LA CARD BOOTSTRAP -->
 
 <hr>
@@ -185,7 +187,9 @@
 
       <th> Adresse </th>
 
-      <th> Action </th>
+      @if (authService.hasAnyRole(['ROLE_ADMIN', 'ROLE_GESTIONNAIRE'])) {
+        <th> Action </th>
+      }
 
     </tr>
 
@@ -209,6 +213,7 @@
 
         <td>{{ client.adresse || '—' }}</td>
 
+        @if (authService.hasAnyRole(['ROLE_ADMIN', 'ROLE_GESTIONNAIRE'])) {
         <td>
 
          <!-- Au clic, on charge le client dans le formulaire -->
@@ -230,6 +235,7 @@
          }
 
         </td>
+        }
 
       </tr>
 

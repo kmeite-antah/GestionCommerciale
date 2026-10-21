@@ -1,5 +1,6 @@
 package com.gestioncommerciale.backend.dto;
 
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -25,9 +26,9 @@ public class ProduitDTO {
     @Size(max = 255, message = "La description ne doit pas dépasser 255 caractères")
     private String description;
 
-    // Prix obligatoire
+    // Prix obligatoire et strictement positif, comme dans le formulaire Angular (min="0.01").
     @NotNull(message = "Le prix est obligatoire")
-    @Min(value = 0, message = "Le prix doit être supérieur ou égal à 0")
+    @DecimalMin(value = "0", inclusive = false, message = "Le prix doit être supérieur à 0")
     private BigDecimal prix;
 
     // Quantité obligatoire

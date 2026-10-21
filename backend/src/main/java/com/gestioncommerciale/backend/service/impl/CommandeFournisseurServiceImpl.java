@@ -22,9 +22,11 @@ import com.gestioncommerciale.backend.model.Fournisseur;
 import com.gestioncommerciale.backend.model.LigneCommandeFournisseur;
 import com.gestioncommerciale.backend.model.Produit;
 import com.gestioncommerciale.backend.model.StatutCommandeFournisseur;
+import com.gestioncommerciale.backend.model.TypeAction;
 import com.gestioncommerciale.backend.repository.CommandeFournisseurRepository;
 import com.gestioncommerciale.backend.repository.FournisseurRepository;
 import com.gestioncommerciale.backend.repository.ProduitRepository;
+import com.gestioncommerciale.backend.service.AuditLogService;
 import com.gestioncommerciale.backend.service.CommandeFournisseurService;
 import com.gestioncommerciale.backend.service.MouvementStockService;
 
@@ -35,17 +37,20 @@ public class CommandeFournisseurServiceImpl implements CommandeFournisseurServic
     private final FournisseurRepository fournisseurRepository;
     private final ProduitRepository produitRepository;
     private final MouvementStockService mouvementStockService;
+    private final AuditLogService auditLogService;
 
     public CommandeFournisseurServiceImpl(
             CommandeFournisseurRepository commandeFournisseurRepository,
             FournisseurRepository fournisseurRepository,
             ProduitRepository produitRepository,
-            MouvementStockService mouvementStockService) {
+            MouvementStockService mouvementStockService,
+            AuditLogService auditLogService) {
 
         this.commandeFournisseurRepository = commandeFournisseurRepository;
         this.fournisseurRepository = fournisseurRepository;
         this.produitRepository = produitRepository;
         this.mouvementStockService = mouvementStockService;
+        this.auditLogService = auditLogService;
     }
 
     @Override
@@ -102,6 +107,10 @@ public class CommandeFournisseurServiceImpl implements CommandeFournisseurServic
 
         CommandeFournisseur commandeSauvegardee = commandeFournisseurRepository.save(commande);
 
+        auditLogService.enregistrer(TypeAction.CREATION, "CommandeFournisseur",
+                "La commande fournisseur " + commandeSauvegardee.getReference() + " a été créée pour "
+                        + fournisseur.getNom() + " - Montant : " + commandeSauvegardee.getMontantTotal() + " FCFA");
+
         return CommandeFournisseurMapper.toDTO(commandeSauvegardee);
     }
 
@@ -117,8 +126,12 @@ public class CommandeFournisseurServiceImpl implements CommandeFournisseurServic
         }
 
         commande.setStatut(StatutCommandeFournisseur.VALIDEE);
+        CommandeFournisseur commandeValidee = commandeFournisseurRepository.save(commande);
 
-        return CommandeFournisseurMapper.toDTO(commandeFournisseurRepository.save(commande));
+        auditLogService.enregistrer(TypeAction.MODIFICATION, "CommandeFournisseur",
+                "La commande fournisseur " + commandeValidee.getReference() + " a été validée");
+
+        return CommandeFournisseurMapper.toDTO(commandeValidee);
     }
 
     @Override
@@ -138,8 +151,12 @@ public class CommandeFournisseurServiceImpl implements CommandeFournisseurServic
         }
 
         commande.setStatut(StatutCommandeFournisseur.ANNULEE);
+        CommandeFournisseur commandeAnnulee = commandeFournisseurRepository.save(commande);
 
-        return CommandeFournisseurMapper.toDTO(commandeFournisseurRepository.save(commande));
+        auditLogService.enregistrer(TypeAction.MODIFICATION, "CommandeFournisseur",
+                "La commande fournisseur " + commandeAnnulee.getReference() + " a été annulée");
+
+        return CommandeFournisseurMapper.toDTO(commandeAnnulee);
     }
 
     @Override
@@ -156,6 +173,13 @@ public class CommandeFournisseurServiceImpl implements CommandeFournisseurServic
         if (commande.getStatut() == StatutCommandeFournisseur.ANNULEE) {
             throw new StatutCommandeFournisseurInvalideException(
                     "Impossible de réceptionner une commande annulée.");
+        }
+
+        // Une commande en brouillon n'a pas été validée : elle ne peut pas être réceptionnée
+        // (le cycle impose BROUILLON -> VALIDEE -> LIVREE).
+        if (commande.getStatut() != StatutCommandeFournisseur.VALIDEE) {
+            throw new StatutCommandeFournisseurInvalideException(
+                    "Seule une commande validée peut être réceptionnée.");
         }
 
         // Mise à jour du stock : chaque ligne augmente la quantité du produit
@@ -175,6 +199,9 @@ public class CommandeFournisseurServiceImpl implements CommandeFournisseurServic
         commande.setStatut(StatutCommandeFournisseur.LIVREE);
 
         CommandeFournisseur commandeLivree = commandeFournisseurRepository.save(commande);
+
+        auditLogService.enregistrer(TypeAction.MODIFICATION, "CommandeFournisseur",
+                "La commande fournisseur " + commandeLivree.getReference() + " a été réceptionnée, stock mis à jour");
 
         return CommandeFournisseurMapper.toDTO(commandeLivree);
     }

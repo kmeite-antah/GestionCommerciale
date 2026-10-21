@@ -17,11 +17,12 @@
 
   <app-commande-list></app-commande-list>
 
-  <hr>
-
-  <app-historique-stock></app-historique-stock>
-
+  <!-- Historique de stock : /api/stock/** est réservé à ADMIN et GESTIONNAIRE côté serveur -->
   @if (authService.hasAnyRole(['ROLE_ADMIN', 'ROLE_GESTIONNAIRE'])) {
+    <hr>
+
+    <app-historique-stock></app-historique-stock>
+
     <hr>
 
     <app-fournisseur-list></app-fournisseur-list>

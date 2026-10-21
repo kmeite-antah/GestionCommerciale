@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import com.gestioncommerciale.backend.dto.ProduitRuptureDTO;
 import com.gestioncommerciale.backend.service.DashboardService;
 import com.gestioncommerciale.backend.service.NotificationService;
+import com.gestioncommerciale.backend.service.StockSeuils;
 
 @Service
 public class NotificationServiceImpl implements NotificationService {
@@ -43,10 +44,10 @@ public class NotificationServiceImpl implements NotificationService {
         }
 
         List<ProduitRuptureDTO> ruptureImminente = ruptures.stream()
-                .filter(produit -> produit.getQuantite() == 0)
+                .filter(produit -> StockSeuils.estRuptureImminente(produit.getQuantite()))
                 .collect(Collectors.toList());
         List<ProduitRuptureDTO> stockBas = ruptures.stream()
-                .filter(produit -> produit.getQuantite() > 0)
+                .filter(produit -> !StockSeuils.estRuptureImminente(produit.getQuantite()))
                 .collect(Collectors.toList());
 
         SimpleMailMessage message = new SimpleMailMessage();
@@ -65,15 +66,18 @@ public class NotificationServiceImpl implements NotificationService {
         corps.append("Date : ").append(LocalDate.now().format(FORMAT_DATE)).append("\n\n");
 
         if (!ruptureImminente.isEmpty()) {
-            corps.append("Produits en rupture (stock à 0) :\n");
+            corps.append("Produits en rupture imminente (moins de ")
+                    .append(StockSeuils.SEUIL_RUPTURE_IMMINENTE).append(" unités) :\n");
             for (ProduitRuptureDTO produit : ruptureImminente) {
-                corps.append("- ").append(produit.getNom()).append("\n");
+                corps.append("- ").append(produit.getNom())
+                        .append(" (quantité restante : ").append(produit.getQuantite()).append(")\n");
             }
             corps.append("\n");
         }
 
         if (!stockBas.isEmpty()) {
-            corps.append("Produits en stock bas :\n");
+            corps.append("Produits en stock bas (de ").append(StockSeuils.SEUIL_RUPTURE_IMMINENTE)
+                    .append(" à ").append(StockSeuils.SEUIL_STOCK_BAS).append(" unités) :\n");
             for (ProduitRuptureDTO produit : stockBas) {
                 corps.append("- ").append(produit.getNom())
                         .append(" (quantité restante : ").append(produit.getQuantite()).append(")\n");

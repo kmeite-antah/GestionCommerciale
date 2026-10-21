@@ -6,6 +6,7 @@ import { Client } from '../../models/client';
 import { ClientService } from '../../services/client';
 import { DataRefreshService } from '../../services/data-refresh.service';
 import { AuthService } from '../../services/auth.service';
+import { messageErreurApi } from '../../utils/message-erreur-api';
 import { ExcelExportService } from '../../services/excel-export.service';
 
 
@@ -202,7 +203,7 @@ ajouterClient(form: NgForm): void {
 
         error: (err) => {
           console.error("Erreur de modification :", err);
-          this.messageErreur = typeof err.error === 'string' ? err.error : (err.error?.email ?? "Impossible de modifier le client.");
+          this.messageErreur = messageErreurApi(err, "Impossible de modifier le client.");
           this.viderMessageApresDelai();
           this.cdr.markForCheck();
         }
@@ -241,7 +242,7 @@ ajouterClient(form: NgForm): void {
 
       error: (err) => {
         console.error("Erreur lors de l'ajout :", err);
-        this.messageErreur = typeof err.error === 'string' ? err.error : (err.error?.email ?? "Impossible d'ajouter le client.");
+        this.messageErreur = messageErreurApi(err, "Impossible d'ajouter le client.");
         this.viderMessageApresDelai();
         this.cdr.markForCheck();
       }

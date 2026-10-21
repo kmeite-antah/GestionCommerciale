@@ -4,8 +4,10 @@ import { FormsModule } from '@angular/forms';
 
 import { Produit } from '../../models/produit';
 import { ProduitService } from '../../services/produit.service';
+import { SEUIL_RUPTURE_IMMINENTE, SEUIL_STOCK_BAS } from '../../constants/stock-seuils';
 import { DataRefreshService } from '../../services/data-refresh.service';
 import { AuthService } from '../../services/auth.service';
+import { messageErreurApi } from '../../utils/message-erreur-api';
 import { StockService } from '../../services/stock.service';
 import { ExcelExportService } from '../../services/excel-export.service';
 import { ScannerCodeBarresComponent } from '../scanner-code-barres/scanner-code-barres';
@@ -102,6 +104,21 @@ idsEnSuppression = new Set<number>();
     this.chargerProduits();
   }
 
+  // Niveau de stock utilisé pour la couleur du badge, avec les mêmes seuils que le tableau
+  // de bord : ok (vert), bas (orange), critique (rouge), rupture (stock à 0).
+  niveauStock(quantite: number): 'ok' | 'bas' | 'critique' | 'rupture' {
+    if (quantite <= 0) {
+      return 'rupture';
+    }
+    if (quantite < SEUIL_RUPTURE_IMMINENTE) {
+      return 'critique';
+    }
+    if (quantite <= SEUIL_STOCK_BAS) {
+      return 'bas';
+    }
+    return 'ok';
+  }
+
   // Charge une page de produits depuis le backend (page=0&size=5 par défaut).
   chargerProduits(page: number = 0): void {
 
@@ -183,7 +200,7 @@ idsEnSuppression = new Set<number>();
 
         error: (err) => {
           console.error(err);
-          this.messageErreur = err.error?.codeBarre ?? err.error ?? "Impossible d'enregistrer le produit.";
+          this.messageErreur = messageErreurApi(err, "Impossible d'enregistrer le produit.");
           this.viderMessageApresDelai();
           this.cdr.markForCheck();
         }
@@ -225,7 +242,7 @@ idsEnSuppression = new Set<number>();
 
       error: (err) => {
         console.error(err);
-        this.messageErreur = err.error?.codeBarre ?? err.error ?? "Impossible d'ajouter le produit.";
+        this.messageErreur = messageErreurApi(err, "Impossible d'ajouter le produit.");
         this.viderMessageApresDelai();
         this.cdr.markForCheck();
       }

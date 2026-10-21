@@ -3,6 +3,7 @@ package com.gestioncommerciale.backend.security;
 import java.util.List;
 
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,7 +13,10 @@ import com.gestioncommerciale.backend.repository.UtilisateurRepository;
 
 // Crée les comptes de démonstration (un par rôle) au démarrage, pour que l'authentification
 // fonctionne immédiatement sans configuration manuelle en base.
+// Profil "dev" uniquement : leurs mots de passe sont publics, ces comptes ne doivent jamais
+// exister en production (où les comptes sont créés manuellement).
 @Component
+@Profile("dev")
 public class UtilisateurSeeder implements CommandLineRunner {
 
     // Anciens noms de comptes de démo, hérités du précédent schéma de rôles (MANAGER/USER),
