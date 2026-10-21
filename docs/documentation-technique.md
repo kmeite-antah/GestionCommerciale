@@ -721,6 +721,12 @@ Formulaire client réutilisé à l'identique pour la création et la modificatio
 
 Tableau paginé (5 éléments par page ici) avec barre de recherche instantanée, export Excel (`excel-export.service.ts` / ExcelJS), et actions « Modifier » / « Supprimer » par ligne. Le bouton « Modifier » est visible pour `ADMIN` et `GESTIONNAIRE`, et « Supprimer » pour `ADMIN` seulement. Pour le caissier, la colonne Action n'est pas affichée. La suppression déclenche une désactivation logique du client (`actif = false`) plutôt qu'une suppression physique, ce qui préserve l'historique de ses commandes passées.
 
+**Liste des clients — vue caissier**
+
+![Liste des clients vue caissier](../screenshots/Capture%20d'%C3%A9cran%202026-10-21%20104524.png)
+
+Le même écran, connecté avec le compte `caissier`. La barre de navigation ne propose que les onglets Clients, Produits et Commandes (pas de tableau de bord, de fournisseurs, d'achats ni de journal d'audit). Le formulaire « Nouveau client » et la colonne Action sont absents : le caissier recherche, consulte et exporte la liste, mais ne peut ni créer, ni modifier, ni supprimer un client, conformément aux règles du serveur (§4.2).
+
 **Confirmation de suppression**
 
 ![Client supprimé](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20203058.png)
@@ -760,6 +766,12 @@ Catalogue paginé avec recherche, bouton « Scanner un produit » (ouvre le comp
 | De 1 à 4 | Rouge, avec la quantité (rupture imminente) |
 | 0 | Rouge, « Rupture » |
 
+**Liste des produits — vue caissier**
+
+![Liste des produits vue caissier](../screenshots/Capture%20d'%C3%A9cran%202026-10-21%20104736.png)
+
+Le catalogue vu par le compte `caissier` : sans formulaire « Nouveau produit » ni colonne Action. Le caissier garde la recherche, le bouton « Scanner un produit » (utile pour retrouver un article au comptoir) et l'export Excel. La liste des commandes, elle, est identique pour les trois rôles : le caissier y crée des ventes, télécharge les factures et peut annuler une commande.
+
 ### 7.5 Ventes — prise de commande et facturation
 
 **Prise de commande**
@@ -797,6 +809,12 @@ Vue consolidée de tous les mouvements de stock, qu'ils soient automatiques (ven
 ![Liste des fournisseurs](../screenshots/Capture%20d'%C3%A9cran%202026-08-08%20180218.png)
 
 Gestion des fournisseurs (raison sociale, email, téléphone, adresse) avec recherche, modification et suppression logique — même principe que pour les clients, afin de préserver l'historique des commandes fournisseur déjà passées. L'écran est réservé aux rôles `ADMIN` et `GESTIONNAIRE`. Le bouton « Supprimer » n'est affiché qu'à l'`ADMIN`, seul autorisé par le serveur à envoyer un `DELETE`.
+
+**Liste des fournisseurs — vue gestionnaire**
+
+![Liste des fournisseurs vue gestionnaire](../screenshots/Capture%20d'%C3%A9cran%202026-10-21%20105416.png)
+
+Le même écran, connecté avec le compte `gestionnaire` : il crée et modifie les fournisseurs, mais le bouton « Supprimer » n'apparaît pas. C'est la seule différence entre le gestionnaire et l'administrateur sur les listes : de la même façon, il voit « Modifier » sur les clients, « Modifier » et « Réapprovisionner » sur les produits, sans « Supprimer ».
 
 **Confirmation de suppression**
 
